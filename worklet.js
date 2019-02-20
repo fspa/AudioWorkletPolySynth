@@ -156,7 +156,6 @@ function changeScale(v=151) {
     }
 }
 
-let parameterDescriptors = [];
 const constParams = {
     descriptors: {},
     setup() {
@@ -194,15 +193,6 @@ const constParams = {
     }
 }
 
-function pcKeyDownHandler(value){
-    const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(value);
-    if(n!=-1)polySynth.noteOn(n);
-    
-}
-function pcKeyUpHandler(value){
-    const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(value);
-    if(n!=-1)polySynth.noteOff(n);
-}
 
 const parameters = [
     { type:"separator", value:"amplitude" },
@@ -233,43 +223,53 @@ const parameters = [
 
 
 /////////////////////////////////////////////////////////////////////////
+let parameterDescriptors = [];
 class Processor extends AudioWorkletProcessor {
     constructor() {
         super();
         this.port.onmessage = this.handleMessage.bind(this);
         
     }
+    static get parameterDescriptors() {
+        return parameterDescriptors;
+    }
     handleMessage(event) {
         let id = event.data.id, value = event.data.value;
-        if(id=="pcKeyDown"){pcKeyDownHandler(value);return;}
-        if(id=="pcKeyUp"){pcKeyUpHandler(value);return;}
+        if(id=="pcKeyDown"){
+            const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(value);
+            if(n!=-1)polySynth.noteOn(n);
+            return;
+        }
+        if(id=="pcKeyUp"){
+            const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(value);
+            if(n!=-1)polySynth.noteOff(n);
+            return;
+        }
         if (id == "scale"){changeScale(value);return;}
         let result = constParams.change(id, value, this);
         this.port.postMessage(result);
     }
-    static get parameterDescriptors() {
-        return parameterDescriptors;
-    }
-    process(inputs, outputs, parameters) {
-        const outL = outputs[0][0];
-        const outR = outputs[0][1];
-        const bufferLen = outL.length;
-        const distortionIn = parameters.distortionIn, isDistortionInConstant = distortionIn.length === 1;
-        const distortionDry = parameters.distortionDry, isDistortionDryConstant = distortionDry.length === 1;
-        const distortionDrive = parameters.distortionDrive, isDistortionDriveConstant = distortionDrive.length === 1;
-        
-        for (let i = 0; i < bufferLen; i++) {
-            let s = polySynth.exec()/2;
-            let dry = (isDistortionDryConstant ? distortionDry[0] : distortionDry[i]);
-            let driveIn = (isDistortionInConstant ? distortionIn[0] : distortionIn[i]);
-            s = s*dry + (1-dry)*waveShaperFrac(driveIn*s, 10-(isDistortionDriveConstant ? distortionDrive[0] : distortionDrive[i]) )
+}
 
-            s /= (dry*2 + (1-dry)*waveShaperFrac(driveIn*2,distortionDry[0]));
-            s *= constParams.masterAmp;
-            outR[i] = outL[i] = s;
-        }
-        return true;
+Processor.prototype.process = function process(inputs, outputs, parameters) {
+    const outL = outputs[0][0];
+    const outR = outputs[0][1];
+    const bufferLen = outL.length;
+    const distortionIn = parameters.distortionIn, isDistortionInConstant = distortionIn.length === 1;
+    const distortionDry = parameters.distortionDry, isDistortionDryConstant = distortionDry.length === 1;
+    const distortionDrive = parameters.distortionDrive, isDistortionDriveConstant = distortionDrive.length === 1;
+    
+    for (let i = 0; i < bufferLen; i++) {
+        let s = polySynth.exec()/2;
+        let dry = (isDistortionDryConstant ? distortionDry[0] : distortionDry[i]);
+        let driveIn = (isDistortionInConstant ? distortionIn[0] : distortionIn[i]);
+        s = s*dry + (1-dry)*waveShaperFrac(driveIn*s, 10-(isDistortionDriveConstant ? distortionDrive[0] : distortionDrive[i]) )
+
+        s /= (dry*2 + (1-dry)*waveShaperFrac(driveIn*2,distortionDry[0]));
+        s *= constParams.masterAmp;
+        outR[i] = outL[i] = s;
     }
+    return true;
 }
 /////////////////////////////////////////////////////////////////////////
 
@@ -303,7 +303,7 @@ class MonoSynthesizer{
         let vol = this.ADSR.exec();
         if(vol===0)this.state = 3;
         this.fmPhase += constParams.freqModFreq/Fs;
-        let fmLv = this.hz-this.hz*pow(2,this.fmLv/12);
+        let fmLv = this.hz*pow(2,this.fmLv/12) -this.hz;
         let fm = siT(this.fmPhase) * fmLv * this.fmLvEnv.exec();
         return this.pm(this.hz+fm,constParams.phaseModFreq,this.pmLv* this.pmLvEnv.exec())*vol;
     }

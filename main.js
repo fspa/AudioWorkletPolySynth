@@ -79,7 +79,6 @@ function setupEvents() {
 
     let pressedKeys = {};
     window.addEventListener("keydown", e => {
-        if (e.repeat) return;
         if (pressedKeys[e.key]) return;
         pressedKeys[e.key] = true;
         postMessage("pcKeyDown", e.key);
