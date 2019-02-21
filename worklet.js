@@ -3,9 +3,7 @@ const random = Math.random, exp = Math.exp, pow = Math.pow, sign = Math.sign, ab
 const clamp = (n, mi, ma) => max(mi, min(ma, n));
 const octave = (hz, oct = 0) => hz * pow(2, oct);
 const siT = function (t) { return sin(twoPI * t) }
-const waveShaperExp = (x, k = 1) => sign(x) * (1 - exp(-abs(x / k)));
 const waveShaperFrac = (x, k = 1) => sign(x) * (1 - k / (k + abs(x)));
-
 
 class PmPair {
     constructor(hz = 400, hzX = 2, lv = 2) {
@@ -45,12 +43,6 @@ class ADSR {// multi trigger, linear
         else this.vol = max(0, this.vol - this.rDec);
         return this.vol;
     }
-    input(gate, amp = 1) {
-        if (gate == this.gate) return;
-        if (gate) this.noteOn(amp);
-        else this.noteOff();
-        this.gate = gate;
-    }
     noteOn(amp = 1) {
         this.index = 0;
         this.amp = amp;
@@ -61,11 +53,16 @@ class ADSR {// multi trigger, linear
         this.dTarget = amp * this.s;
         this.isDecaying = false;
         this.isOn = true;
-
     }
     noteOff() {
         this.isOn = false;
         this.rDec = this.amp * this.vol / this.ri;
+    }
+    input(gate, amp = 1) {
+        if (gate == this.gate) return;
+        if (gate) this.noteOn(amp);
+        else this.noteOff();
+        this.gate = gate;
     }
 }
 
@@ -74,8 +71,13 @@ class PolySynthesizer {
         this.assigner = new this.Assigner(numVoices);
         this.synths = [];
         this.numVoices = numVoices;
-        for (let i = 0; i < numVoices; i++)this.synths.push(new monoSynth());
+        for (let i = 0; i < 16; i++)this.synths.push(new monoSynth());
 
+    }
+    changeNumVoice(num) {
+        if (this.numVoices == num) return;
+        this.numVoices = num;
+        this.assigner.setup(num);
     }
     noteOn(number, velocity = 1) {
         let aInd = this.assigner.setIndex(number);
@@ -105,8 +107,11 @@ class PolySynthesizer {
 
 PolySynthesizer.prototype.Assigner = class {
     constructor(num = 2) {
+        this.setup(num);
+    }
+    setup(num) {
         this.num = num;
-        this.assignmentList = new Array(num).fill(undefined);
+        this.assignmentList = new Array(16).fill(undefined);
         this.countList = [];
     }
     setIndex(noteNumber) {
@@ -114,7 +119,7 @@ PolySynthesizer.prototype.Assigner = class {
         let aIndex = this.assignmentList.indexOf(noteNumber);
         if (aIndex != -1) return aIndex;
 
-        //　未使用なら割り当てる
+        //　割り当てる
         for (let i = 0, li = this.assignmentList, l = this.num; i < l; i++) {
             if (li[i] === undefined) {
                 li[i] = noteNumber;
@@ -122,10 +127,12 @@ PolySynthesizer.prototype.Assigner = class {
                 return i;
             }
         }
-        // 未使用がなければ最初に使ったものを使う 
+
+        // 空きがなければ最初に使ったものを使う 
         let n = this.countList[this.countList.length - this.num];
         this.assignmentList[n] = noteNumber;
         this.countList.push(n);
+
         return n;
     }
     getIndex(noteNumber) {
@@ -172,8 +179,8 @@ const constParams = {
         let p = this.descriptors[id];
         let clampedValue = clamp(parseFloat(value), p.minValue, p.maxValue);
         this[id] = clampedValue;
-
-        for (let i = 0, cp = constParams, syn = polySynth.synths, l = syn.length; i < l; i++) {
+        let cp = constParams;
+        for (let i = 0, syn = polySynth.synths, l = syn.length; i < l; i++) {
             syn[i].ADSR.setA(cp.carrierA);
             syn[i].ADSR.setD(cp.carrierD);
             syn[i].ADSR.setS(cp.carrierS);
@@ -187,7 +194,7 @@ const constParams = {
             syn[i].pmLvEnv.setS(cp.phaseModS);
             syn[i].pmLvEnv.setR(cp.phaseModR);
         }
-
+        polySynth.changeNumVoice(cp.numVoices)
         if (value == clampedValue) return id + " " + value;
         else return id + " clamped " + clampedValue;
     }
@@ -195,6 +202,7 @@ const constParams = {
 
 
 const parameters = [
+    { name: 'numVoices', type: "number", defaultValue: 4, minValue: 1, maxValue: 16, step: 1 },
     { type: "separator", value: "amplitude" },
     { name: 'carrierA', defaultValue: 0.01, minValue: 0.01, maxValue: 2, exp: 2 },
     { name: 'carrierD', defaultValue: 0.1, minValue: 0.01, maxValue: 2 },
@@ -203,17 +211,17 @@ const parameters = [
     { type: "separator", value: "timbre" },
     { name: 'phaseModFreq', type: "number", defaultValue: 1, minValue: 0.25, maxValue: 16, step: 0.25, unit: "ratio" },
     { name: 'phaseModLv', defaultValue: 1, minValue: 0., maxValue: 4 },
-    { name: 'phaseModA', defaultValue: 0.00, minValue: 0.00, maxValue: 2, exp: 2 },
+    { name: 'phaseModA', defaultValue: 0.01, minValue: 0.00, maxValue: 2, exp: 2 },
     { name: 'phaseModD', defaultValue: 0.5, minValue: 0.01, maxValue: 2 },
     { name: 'phaseModS', defaultValue: 0.3, minValue: 0, maxValue: 1 },
     { name: 'phaseModR', defaultValue: 0.2, minValue: 0.01, maxValue: 5 },
     { type: "separator", value: "vibrato" },
-    { name: 'freqModFreq', defaultValue: 4, minValue: 0.25, maxValue: 20, unit: "Hz" },
+    { name: 'freqModFreq', defaultValue: 4, minValue: 0.25, maxValue: 400, unit: "Hz", exp: 3 },
     { name: 'freqModLv', defaultValue: 0.25, minValue: 0, maxValue: 12, unit: "semi", exp: 2 },
     { name: 'freqModA', defaultValue: 1, minValue: 0.00, maxValue: 2 },
     { name: 'freqModD', defaultValue: 1, minValue: 0.01, maxValue: 2 },
     { name: 'freqModS', defaultValue: 1, minValue: 0, maxValue: 1 },
-    { name: 'freqModR', defaultValue: 0.1, minValue: 0.01, maxValue: 5 },
+    { name: 'freqModR', defaultValue: 1, minValue: 0.01, maxValue: 5 },
     { type: "separator", value: "distortion" },
     { name: 'distortionIn', ramp: true, defaultValue: 5, minValue: 0, maxValue: 10 },
     { name: 'distortionDrive', ramp: true, defaultValue: 0, minValue: 0, maxValue: 9 },
@@ -255,19 +263,19 @@ Processor.prototype.process = function process(inputs, outputs, parameters) {
     const outL = outputs[0][0];
     const outR = outputs[0][1];
     const bufferLen = outL.length;
-    const distortionIn = parameters.distortionIn, isDistortionInConstant = distortionIn.length === 1;
-    const distortionDry = parameters.distortionDry, isDistortionDryConstant = distortionDry.length === 1;
-    const distortionDrive = parameters.distortionDrive, isDistortionDriveConstant = distortionDrive.length === 1;
+    const dIn = parameters.distortionIn, isDistortionInConstant = dIn.length === 1;
+    const dDry = parameters.distortionDry, isDistortionDryConstant = dDry.length === 1;
+    const dDrive = parameters.distortionDrive, isDistortionDriveConstant = dDrive.length === 1;
 
     for (let i = 0; i < bufferLen; i++) {
         let s = polySynth.exec() / 2;
-        let dry = (isDistortionDryConstant ? distortionDry[0] : distortionDry[i]);
-        let driveIn = (isDistortionInConstant ? distortionIn[0] : distortionIn[i]);
-        s = s * dry + (1 - dry) * waveShaperFrac(driveIn * s, 10 - (isDistortionDriveConstant ? distortionDrive[0] : distortionDrive[i]))
-
-        s /= (dry * 2 + (1 - dry) * waveShaperFrac(driveIn * 2, distortionDry[0]));
+        let dry = (isDistortionDryConstant ? dDry[0] : dDry[i]);
+        let driveIn = (isDistortionInConstant ? dIn[0] : dIn[i]);
+        s = s * dry + (1 - dry) * waveShaperFrac(driveIn * s, 10 - (isDistortionDriveConstant ? dDrive[0] : dDrive[i]))
+        s /= (dry * 2 + (1 - dry) * waveShaperFrac(driveIn * 2, dry));
         s *= constParams.masterAmp;
         outR[i] = outL[i] = s;
+        if (abs(s) > 1) this.port.postMessage("clipped!");
     }
     return true;
 }
@@ -277,8 +285,8 @@ class MonoSynthesizer {
     constructor() {
         this.pm = PmPair.create(1, 1, 0.25);
         this.ADSR = new ADSR(0.01, 0.1, 0.3, 0.2);
-        this.pmLvEnv = new ADSR(0.0, 0.5, 0.3, 0.2);
-        this.fmLvEnv = new ADSR(1, 1, 1, 0.1);
+        this.pmLvEnv = new ADSR(0.01, 0.5, 0.3, 0.2);
+        this.fmLvEnv = new ADSR(1, 1, 1, 1);
         this.state = 0;
         this.fmPhase = 0;
     }
@@ -286,9 +294,10 @@ class MonoSynthesizer {
         this.noteNumber = noteNumber;
         this.hz = scale[noteNumber];
         this.vel = vel;
-        this.fmLv = constParams.freqModLv;
-        this.pmLv = constParams.phaseModLv;
         this.ADSR.noteOn(vel);
+        this.pmLv = constParams.phaseModLv;
+        this.fmLvEnv.vol = 0;
+        this.fmPhase = 0;
         this.pmLvEnv.noteOn(vel);
         this.fmLvEnv.noteOn(vel);
         this.state = 1;
@@ -301,9 +310,12 @@ class MonoSynthesizer {
     }
     exec() {
         let vol = this.ADSR.exec();
-        if (vol === 0) this.state = 3;
+        if (vol === 0) {
+            this.state = 3;
+            this.pmLvEnv.vol = 0;
+        }
         this.fmPhase += constParams.freqModFreq / Fs;
-        let fmLv = this.hz * pow(2, this.fmLv / 12) - this.hz;
+        let fmLv = octave(this.hz, constParams.freqModLv / 12) - this.hz;
         let fm = siT(this.fmPhase) * fmLv * this.fmLvEnv.exec();
         return this.pm(this.hz + fm, constParams.phaseModFreq, this.pmLv * this.pmLvEnv.exec()) * vol;
     }

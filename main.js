@@ -19,7 +19,7 @@ async function setup() {
 
     setupParams();
     setupEvents();
-    info.textContent = `sampleRate:${context.sampleRate}, baseLatency:${context.baseLatency}. please connect`;
+    info.textContent = `sampleRate:${context.sampleRate}, baseLatency:${context.baseLatency}. press alphabet keys`;
 }
 
 function setupParams() {
@@ -49,6 +49,7 @@ function postMessage(id, value) {
 
 function createInput(p) {
     let inputEl = document.createElement("input");
+    inputEl.id = p.name;
     let exp = p.exp || 1;
     inputEl.min = p.minValue ** (1 / exp);
     inputEl.max = p.maxValue ** (1 / exp);
@@ -71,11 +72,14 @@ function createInput(p) {
 
 function setupEvents() {
     let connecting = false;
-    gE("connect").addEventListener("click", _ => {
+    function connect() {
+        window.removeEventListener("keydown", connect);
         connecting = !connecting;
         processor[(connecting ? "connect" : "disconnect")](context.destination);
         info.textContent = (connecting ? "connected. press alphabet keys" : "disconnected");
-    });
+    }
+    gE("connect").addEventListener("click", connect);
+    window.addEventListener("keydown", connect);
 
     let pressedKeys = {};
     window.addEventListener("keydown", e => {
