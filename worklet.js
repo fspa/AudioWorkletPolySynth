@@ -226,7 +226,7 @@ const parameters = [
     { name: 'distortionIn', ramp: true, defaultValue: 5, minValue: 0, maxValue: 10 },
     { name: 'distortionDrive', ramp: true, defaultValue: 0, minValue: 0, maxValue: 9 },
     { name: 'distortionDry', ramp: true, defaultValue: 0.25, minValue: 0, maxValue: 1, unit: "ratio" },
-    { name: 'masterAmp', defaultValue: 1, minValue: 0, maxValue: 1 },
+    { name: 'masterAmp', type: "number", defaultValue: 1, minValue: 0, maxValue: 1 },
 ];
 
 

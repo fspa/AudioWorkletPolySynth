@@ -1,4 +1,5 @@
 Object.getOwnPropertyNames(Math).forEach(p => self[p] = Math[p]);
+const clamp = (n, mi, ma) => max(mi, min(ma, n));
 const gE = id => { return document.getElementById(id) };
 let info, context, processor;
 
@@ -33,18 +34,71 @@ function setupParams() {
 function createParameters(params) {
     for (let p of params) {
         if (p.type == "none") continue;
-        if (p.type == null) p.type = "range";
+        if (p.type == null) p.type = "slider";
         if (p.type == "separator") {
             let el = document.createElement("h3");
             el.textContent = p.value;
             paramContainers.appendChild(el);
         }
+        else if (p.type == "slider") createSlider(p);
         else createInput(p);
     }
 }
 
 function postMessage(id, value) {
     processor.port.postMessage({ id, value });
+}
+function createSlider(p){
+    let divEl = document.createElement("div");
+    divEl.id = p.name;
+    divEl.classList.add("slider");
+    
+    let exp = p.exp || 1;
+    let mi = p.minValue,  ma = p.maxValue, range = ma -mi;
+    
+    let value  = p.defaultValue;
+    divEl.step = (p.step ? p.step : 0.01);
+
+    let txt = p.name + (p.unit ? `(${p.unit})` : "");
+    let textNode = document.createTextNode(" - " + txt);
+    paramContainers.appendChild(divEl);
+    paramContainers.appendChild(textNode);
+    paramContainers.appendChild(document.createElement("BR"));
+
+    setValue(value);
+    function setValue(value){
+        let v = (value/range)**(1/exp) *100;
+        divEl.style.backgroundImage = `linear-gradient(to right, orange , orange , ${v}%, white, ${v}%, white)`;
+        divEl.textContent = value;
+    }
+
+    let mouseX = false, m = 1;
+    divEl.addEventListener("mousedown",e=>{
+        let rect = e.target.getBoundingClientRect();
+        mouseX = e.clientX - rect.left;
+        document.addEventListener("mousemove",moveHandler);
+        document.addEventListener("mouseup",upHandler);
+        sendValue(getValue());
+    });
+    function moveHandler(e){
+        mouseX += e.movementX;
+        sendValue(getValue());
+    }
+    function upHandler(){
+        document.removeEventListener("mousemove",moveHandler);
+        document.removeEventListener("mouseup",upHandler);
+    }
+    function getValue(v){
+        v = clamp( (mouseX -m) / (divEl.clientWidth), 0, 1);
+        divEl.style.backgroundImage = `linear-gradient(to right, orange , orange , ${v*100}%, white, ${v*100}%, white)`;
+        v = mi + pow(v,exp)* range;
+        divEl.textContent = v.toFixed(3);
+        return v;
+    }
+    function sendValue(v){
+        if (!p.ramp) postMessage(p.name, v)
+        else processor.parameters.get(p.name).linearRampToValueAtTime(v, context.currentTime + (p.time || 0.1));
+    }
 }
 
 function createInput(p) {
@@ -76,6 +130,8 @@ function setupEvents() {
         window.removeEventListener("keydown", connect);
         connecting = !connecting;
         processor[(connecting ? "connect" : "disconnect")](context.destination);
+        context[(connecting ? "resume" : "suspend")]();
+        // context.resume();
         info.textContent = (connecting ? "connected. press alphabet keys" : "disconnected");
     }
     gE("connect").addEventListener("click", connect);
