@@ -1,29 +1,84 @@
 Object.getOwnPropertyNames(Math).forEach(p => self[p] = Math[p]);
 const clamp = (n, mi, ma) => max(mi, min(ma, n));
 const gE = id => { return document.getElementById(id) };
+const gV = id => { return parseFloat(gE(id).value) };
 let info, context, processor;
 
-window.addEventListener("load", setup);
-async function setup() {
+window.addEventListener("load", async function setup() {
     info = gE("info");
     paramContainers = gE("param-container");
     try {
-        // context = new AudioContext({ latencyHint: 0.05, sampleRate: 24000 });
-        context = new AudioContext();
+        AudioContext
         AudioWorklet;
     } catch (error) { info.textContent = error; return; }
+    await init(1);
+    setupEvents();
+});
+
+function setupEvents() {
+    gE("init").addEventListener("click",init);
+    gE("connect").addEventListener("click", connect);
+
+    let pressedKeys = {};
+    window.addEventListener("keydown", e => {
+        if (pressedKeys[e.key]) return;
+        pressedKeys[e.key] = true;
+        postMessage("pcKeyDown", e.key);
+    });
+    window.addEventListener("keyup", e => {
+        pressedKeys[e.key] = false;
+        postMessage("pcKeyUp", e.key);
+    });
+
+    const checkboxList = document.querySelectorAll("input[type='checkbox']");
+    for (let c of checkboxList) c.addEventListener("change", _ => {
+        let binaryData = 0;
+        for (let i = checkboxList.length - 1; i >= 0; i--) {
+            binaryData <<= 1;
+            if (checkboxList[i].checked) binaryData += 1;
+        }
+        postMessage("scale", binaryData);
+    });
+}
+
+async function init(first){
+    connecting = false;
+    if(context)context.close();
+    let lh = (first===1)?undefined:gV("latency");
+    context = new AudioContext({ latencyHint: lh, sampleRate: 24000 });
 
     await context.audioWorklet.addModule('worklet.js');
-    processor = new AudioWorkletNode(context, 'processor', { outputChannelCount: [2] });
+    processor = await new AudioWorkletNode(context, 'processor', { outputChannelCount: [2] });
     processor.onprocessorerror = e => { console.log(e); info.textContent = "error"; }
     processor.port.onmessage = e => info.textContent = e.data;
 
     setupParams();
-    setupEvents();
-    info.textContent = `sampleRate:${context.sampleRate}, baseLatency:${context.baseLatency}. press alphabet keys`;
+    
+    gE("latency").value = context.baseLatency;
+    if(first===1){
+        info.textContent = `sampleRate:${context.sampleRate}, baseLatency:${context.baseLatency}. press any keys`;
+        window.addEventListener("keydown", connect);
+        window.addEventListener("mousemove", connect);
+    }
+    else {
+        connect();
+        info.textContent = `sampleRate:${context.sampleRate}, baseLatency:${context.baseLatency}.`;
+    }
 }
 
+function connect() {
+    window.removeEventListener("keydown", connect);
+    window.removeEventListener("mousemove", connect);
+    connecting = !connecting;
+    
+    context[(connecting ? "resume" : "suspend")]();
+    processor[(connecting ? "connect" : "disconnect")](context.destination);
+    info.textContent = (connecting ? "connected" : "disconnected");
+}
+
+// 以下インタラクティブ用
 function setupParams() {
+    gE("param-container").innerHTML = "";
     let setupMessenger = new AudioWorkletNode(context, "setup");
     setupMessenger.port.onmessage = function handleMessage(event) {
         createParameters(event.data);
@@ -48,6 +103,8 @@ function createParameters(params) {
 function postMessage(id, value) {
     processor.port.postMessage({ id, value });
 }
+
+
 function createSlider(p){
     let divEl = document.createElement("div");
     divEl.id = p.name;
@@ -109,7 +166,7 @@ function createInput(p) {
     inputEl.max = p.maxValue ** (1 / exp);
     inputEl.value = p.defaultValue ** (1 / exp);
     inputEl.step = (p.step ? p.step : 0.01);
-    inputEl.type = p.type; // rangeは valueのあとに設定しないと動かない
+    inputEl.type = p.type; // rangeは valueのあとに設定
     let txt = p.name + (p.unit ? `(${p.unit})` : "");
     let textNode = document.createTextNode(" - " + txt);
     paramContainers.appendChild(inputEl);
@@ -121,39 +178,5 @@ function createInput(p) {
         let value = inputEl.value;
         info.textContent = p.name + " " + value;
         processor.parameters.get(p.name).linearRampToValueAtTime(value, context.currentTime + (p.time || 0.1));
-    });
-}
-
-function setupEvents() {
-    let connecting = false;
-    function connect() {
-        window.removeEventListener("keydown", connect);
-        connecting = !connecting;
-        processor[(connecting ? "connect" : "disconnect")](context.destination);
-        context[(connecting ? "resume" : "suspend")]();
-        info.textContent = (connecting ? "connected. press alphabet keys" : "disconnected");
-    }
-    gE("connect").addEventListener("click", connect);
-    window.addEventListener("keydown", connect);
-
-    let pressedKeys = {};
-    window.addEventListener("keydown", e => {
-        if (pressedKeys[e.key]) return;
-        pressedKeys[e.key] = true;
-        postMessage("pcKeyDown", e.key);
-    });
-    window.addEventListener("keyup", e => {
-        pressedKeys[e.key] = false;
-        postMessage("pcKeyUp", e.key);
-    });
-
-    const checkboxList = document.querySelectorAll("input[type='checkbox']");
-    for (let c of checkboxList) c.addEventListener("change", _ => {
-        let binaryData = 0;
-        for (let i = checkboxList.length - 1; i >= 0; i--) {
-            binaryData <<= 1;
-            if (checkboxList[i].checked) binaryData += 1;
-        }
-        postMessage("scale", binaryData);
     });
 }
