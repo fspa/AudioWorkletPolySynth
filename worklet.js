@@ -204,7 +204,7 @@ const constParams = {
 const parameters = [
     { name: 'numVoices', type: "number", defaultValue: 4, minValue: 1, maxValue: 16, step: 1 },
     { type: "separator", value: "amplitude" },
-    { name: 'carrierA', defaultValue: 0.01, minValue: 0.01, maxValue: 2, exp: 2 },
+    { name: 'carrierA', defaultValue: 0.01, minValue: 0.001, maxValue: 2, exp: 2 },
     { name: 'carrierD', defaultValue: 0.1, minValue: 0.01, maxValue: 2 },
     { name: 'carrierS', defaultValue: 0.3, minValue: 0, maxValue: 1 },
     { name: 'carrierR', defaultValue: 0.2, minValue: 0.01, maxValue: 2 },
@@ -225,7 +225,7 @@ const parameters = [
     { type: "separator", value: "distortion" },
     { name: 'distortionIn', ramp: true, defaultValue: 5, minValue: 0, maxValue: 10 },
     { name: 'distortionDrive', ramp: true, defaultValue: 0, minValue: 0, maxValue: 9 },
-    { name: 'distortionDry', ramp: true, defaultValue: 0.25, minValue: 0, maxValue: 1, unit: "ratio" },
+    { name: 'distortionWet', ramp: true, defaultValue: 0.25, minValue: 0, maxValue: 1, unit: "ratio" },
     { name: 'masterAmp', type: "number", defaultValue: 1, minValue: 0, maxValue: 1 },
 ];
 
@@ -264,12 +264,12 @@ Processor.prototype.process = function process(inputs, outputs, parameters) {
     const outR = outputs[0][1];
     const bufferLen = outL.length;
     const dIn = parameters.distortionIn, isDistortionInConstant = dIn.length === 1;
-    const dDry = parameters.distortionDry, isDistortionDryConstant = dDry.length === 1;
+    const dWet = parameters.distortionWet, isDistortionDryConstant = dWet.length === 1;
     const dDrive = parameters.distortionDrive, isDistortionDriveConstant = dDrive.length === 1;
 
     for (let i = 0; i < bufferLen; i++) {
         let s = polySynth.exec() / 2;
-        let dry = (isDistortionDryConstant ? dDry[0] : dDry[i]);
+        let dry = 1-(isDistortionDryConstant ? dWet[0] : dWet[i]);
         let driveIn = (isDistortionInConstant ? dIn[0] : dIn[i]);
         s = s * dry + (1 - dry) * waveShaperFrac(driveIn * s, 10 - (isDistortionDriveConstant ? dDrive[0] : dDrive[i]))
         s /= (dry * 2 + (1 - dry) * waveShaperFrac(driveIn * 2, dry));

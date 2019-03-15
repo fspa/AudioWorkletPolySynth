@@ -69,7 +69,7 @@ function createSlider(p){
     function setValue(value){
         let v = (value/range)**(1/exp) *100;
         divEl.style.backgroundImage = `linear-gradient(to right, orange , orange , ${v}%, white, ${v}%, white)`;
-        divEl.textContent = value;
+        divEl.textContent = value.toFixed(3);
     }
 
     let mouseX = false, m = 1;
@@ -131,7 +131,6 @@ function setupEvents() {
         connecting = !connecting;
         processor[(connecting ? "connect" : "disconnect")](context.destination);
         context[(connecting ? "resume" : "suspend")]();
-        // context.resume();
         info.textContent = (connecting ? "connected. press alphabet keys" : "disconnected");
     }
     gE("connect").addEventListener("click", connect);
