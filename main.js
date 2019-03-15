@@ -2,7 +2,7 @@ Object.getOwnPropertyNames(Math).forEach(p => self[p] = Math[p]);
 const clamp = (n, mi, ma) => max(mi, min(ma, n));
 const gE = id => { return document.getElementById(id) };
 const gV = id => { return parseFloat(gE(id).value) };
-let info, context, processor;
+let info, context, processor, pcKeyHandler;
 
 window.addEventListener("load", async function setup() {
     info = gE("info");
@@ -16,18 +16,18 @@ window.addEventListener("load", async function setup() {
 });
 
 function setupEvents() {
-    gE("init").addEventListener("click",init);
+    gE("init").addEventListener("click", init);
     gE("connect").addEventListener("click", connect);
 
     let pressedKeys = {};
     window.addEventListener("keydown", e => {
         if (pressedKeys[e.key]) return;
         pressedKeys[e.key] = true;
-        postMessage("pcKeyDown", e.key);
+        pcKeyHandler.port.postMessage({ id: "keydown", value: e.key });
     });
     window.addEventListener("keyup", e => {
         pressedKeys[e.key] = false;
-        postMessage("pcKeyUp", e.key);
+        pcKeyHandler.port.postMessage({ id: "keyup", value: e.key });
     });
 
     const checkboxList = document.querySelectorAll("input[type='checkbox']");
@@ -41,21 +41,23 @@ function setupEvents() {
     });
 }
 
-async function init(first){
+async function init(first) {
     connecting = false;
-    if(context)context.close();
-    let lh = (first===1)?undefined:gV("latency");
-    context = new AudioContext({ latencyHint: lh, sampleRate: 24000 });
+    if (context) context.close();
+    let lh = (first === 1) ? undefined : gV("latency");
+    context = new AudioContext({ latencyHint: lh });
+    // context = new AudioContext({ latencyHint: lh, sampleRate: 24000 });
 
     await context.audioWorklet.addModule('worklet.js');
     processor = await new AudioWorkletNode(context, 'processor', { outputChannelCount: [2] });
     processor.onprocessorerror = e => { console.log(e); info.textContent = "error"; }
     processor.port.onmessage = e => info.textContent = e.data;
 
+    pcKeyHandler = await new AudioWorkletNode(context, "pcKeyHandler");
     setupParams();
-    
+
     gE("latency").value = context.baseLatency;
-    if(first===1){
+    if (first === 1) {
         info.textContent = `sampleRate:${context.sampleRate}, baseLatency:${context.baseLatency}. press any keys`;
         window.addEventListener("keydown", connect);
         window.addEventListener("mousemove", connect);
@@ -70,10 +72,14 @@ function connect() {
     window.removeEventListener("keydown", connect);
     window.removeEventListener("mousemove", connect);
     connecting = !connecting;
-    
+
     context[(connecting ? "resume" : "suspend")]();
     processor[(connecting ? "connect" : "disconnect")](context.destination);
-    info.textContent = (connecting ? "connected" : "disconnected");
+    info.textContent = (connecting ? "connected. press alphabet keys" : "disconnected");
+}
+
+function postMessage(id, value) {
+    processor.port.postMessage({ id, value });
 }
 
 // 以下インタラクティブ用
@@ -100,20 +106,16 @@ function createParameters(params) {
     }
 }
 
-function postMessage(id, value) {
-    processor.port.postMessage({ id, value });
-}
 
-
-function createSlider(p){
+function createSlider(p) {
     let divEl = document.createElement("div");
     divEl.id = p.name;
     divEl.classList.add("slider");
-    
+
     let exp = p.exp || 1;
-    let mi = p.minValue,  ma = p.maxValue, range = ma -mi;
-    
-    let value  = p.defaultValue;
+    let mi = p.minValue, ma = p.maxValue, range = ma - mi;
+
+    let value = p.defaultValue;
     divEl.step = (p.step ? p.step : 0.01);
 
     let txt = p.name + (p.unit ? `(${p.unit})` : "");
@@ -123,36 +125,36 @@ function createSlider(p){
     paramContainers.appendChild(document.createElement("BR"));
 
     setValue(value);
-    function setValue(value){
-        let v = (value/range)**(1/exp) *100;
+    function setValue(value) {
+        let v = (value / range) ** (1 / exp) * 100;
         divEl.style.backgroundImage = `linear-gradient(to right, orange , orange , ${v}%, white, ${v}%, white)`;
         divEl.textContent = value.toFixed(3);
     }
 
     let mouseX = false, m = 1;
-    divEl.addEventListener("mousedown",e=>{
+    divEl.addEventListener("mousedown", e => {
         let rect = e.target.getBoundingClientRect();
         mouseX = e.clientX - rect.left;
-        document.addEventListener("mousemove",moveHandler);
-        document.addEventListener("mouseup",upHandler);
+        document.addEventListener("mousemove", moveHandler);
+        document.addEventListener("mouseup", upHandler);
         sendValue(getValue());
     });
-    function moveHandler(e){
+    function moveHandler(e) {
         mouseX += e.movementX;
         sendValue(getValue());
     }
-    function upHandler(){
-        document.removeEventListener("mousemove",moveHandler);
-        document.removeEventListener("mouseup",upHandler);
+    function upHandler() {
+        document.removeEventListener("mousemove", moveHandler);
+        document.removeEventListener("mouseup", upHandler);
     }
-    function getValue(v){
-        v = clamp( (mouseX -m) / (divEl.clientWidth), 0, 1);
-        divEl.style.backgroundImage = `linear-gradient(to right, orange , orange , ${v*100}%, white, ${v*100}%, white)`;
-        v = mi + pow(v,exp)* range;
+    function getValue(v) {
+        v = clamp((mouseX - m) / (divEl.clientWidth), 0, 1);
+        divEl.style.backgroundImage = `linear-gradient(to right, orange , orange , ${v * 100}%, white, ${v * 100}%, white)`;
+        v = mi + pow(v, exp) * range;
         divEl.textContent = v.toFixed(3);
         return v;
     }
-    function sendValue(v){
+    function sendValue(v) {
         if (!p.ramp) postMessage(p.name, v)
         else processor.parameters.get(p.name).linearRampToValueAtTime(v, context.currentTime + (p.time || 0.1));
     }

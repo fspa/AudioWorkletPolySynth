@@ -5,7 +5,7 @@ const octave = (hz, oct = 0) => hz * pow(2, oct);
 const siT = function (t) { return sin(twoPI * t) }
 const waveShaperFrac = (x, k = 1) => sign(x) * (1 - k / (k + abs(x)));
 
-class PmPair {
+class PMPair {
     constructor(hz = 400, hzX = 2, lv = 2) {
         [this.hz, this.hzX, this.lv] = [hz, hzX, lv];
         [this.a, this.cPhase, this.mPhase] = [twoPI / Fs, 0, 0];
@@ -16,7 +16,7 @@ class PmPair {
         this.mPhase += inc * hzX;
         return sin(this.cPhase + lv / hzX * sin(this.mPhase));
     }
-    static create(hz, mHzX, lv) { let c = new PmPair(...arguments); return c.exec.bind(c); }
+    static create(hz, mHzX, lv) { let c = new PMPair(...arguments); return c.exec.bind(c); }
 }
 
 class ADSR {// multi trigger, linear
@@ -148,7 +148,7 @@ PolySynthesizer.prototype.Assigner = class {
 /////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////
 
-
+let scale;
 function changeScale(v = 151) {
     let harmonics = [], baseHz = 50;
 
@@ -243,16 +243,6 @@ class Processor extends AudioWorkletProcessor {
     }
     handleMessage(event) {
         let id = event.data.id, value = event.data.value;
-        if (id == "pcKeyDown") {
-            const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(value);
-            if (n != -1) polySynth.noteOn(n);
-            return;
-        }
-        if (id == "pcKeyUp") {
-            const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(value);
-            if (n != -1) polySynth.noteOff(n);
-            return;
-        }
         if (id == "scale") { changeScale(value); return; }
         let result = constParams.change(id, value, this);
         this.port.postMessage(result);
@@ -269,7 +259,7 @@ Processor.prototype.process = function process(inputs, outputs, parameters) {
 
     for (let i = 0; i < bufferLen; i++) {
         let s = polySynth.exec() / 2;
-        let dry = 1-(isDistortionDryConstant ? dWet[0] : dWet[i]);
+        let dry = 1 - (isDistortionDryConstant ? dWet[0] : dWet[i]);
         let driveIn = (isDistortionInConstant ? dIn[0] : dIn[i]);
         s = s * dry + (1 - dry) * waveShaperFrac(driveIn * s, 10 - (isDistortionDriveConstant ? dDrive[0] : dDrive[i]))
         s /= (dry * 2 + (1 - dry) * waveShaperFrac(driveIn * 2, dry));
@@ -283,7 +273,7 @@ Processor.prototype.process = function process(inputs, outputs, parameters) {
 
 class MonoSynthesizer {
     constructor() {
-        this.pm = PmPair.create(1, 1, 0.25);
+        this.pm = PMPair.create(1, 1, 0.25);
         this.ADSR = new ADSR(0.01, 0.1, 0.3, 0.2);
         this.pmLvEnv = new ADSR(0.01, 0.5, 0.3, 0.2);
         this.fmLvEnv = new ADSR(1, 1, 1, 1);
@@ -321,15 +311,30 @@ class MonoSynthesizer {
     }
 }
 let polySynth = new PolySynthesizer(MonoSynthesizer, 4);
-let scale;
 
-changeScale(151);
-constParams.setup();
-registerProcessor('processor', Processor);
-registerProcessor('setup', class extends Processor {
-    constructor() {
-        super();
-        let t = this;
-        this.port.onmessage = _ => t.port.postMessage(parameters);
-    }
-});
+/////////////////////////////////////////////////////////////////////////
+{
+    changeScale(151);
+    constParams.setup();
+    registerProcessor('processor', Processor);
+    registerProcessor('setup', class extends Processor {
+        constructor() {
+            super();
+            let t = this;
+            this.port.onmessage = _ => t.port.postMessage(parameters);
+        }
+    });
+    registerProcessor('pcKeyHandler', class extends Processor {
+        constructor() {
+            super();
+            this.port.onmessage = this.handle;
+        }
+        handle(event) {
+            let value = event.data.value;
+            const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(event.data.value);
+            if (n == -1) return;
+            if (event.data.id == "keydown") polySynth.noteOn(n);
+            else polySynth.noteOff(n);
+        }
+    });
+}
