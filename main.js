@@ -51,7 +51,11 @@ async function init(first) {
     await context.audioWorklet.addModule('worklet.js');
     processor = await new AudioWorkletNode(context, 'processor', { outputChannelCount: [2] });
     processor.onprocessorerror = e => { console.log(e); info.textContent = "error"; }
-    processor.port.onmessage = e => info.textContent = e.data;
+    processor.port.onmessage = e => {
+        if(typeof e.data == "string")info.textContent = e.data;
+        else gE(e.data.id).value = e.data.value;
+        
+    }
 
     pcKeyHandler = await new AudioWorkletNode(context, "pcKeyHandler");
     setupParams();
@@ -105,7 +109,6 @@ function createParameters(params) {
         else createInput(p);
     }
 }
-
 
 function createSlider(p) {
     let divEl = document.createElement("div");
