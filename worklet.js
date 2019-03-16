@@ -251,10 +251,10 @@ class Processor extends AudioWorkletProcessor {
         let resultTxt = constParams.change(id, value, this);
         this.port.postMessage(resultTxt);
     }
-    clipHandler(t, inp) {
+    normalize(t, inp) {
         let v = truncDig(constParams.masterAmp / inp, 2);
         constParams.masterAmp = v;
-        t.port.postMessage("masterAmp " + v);
+        t.port.postMessage(`masterAmp ${v}`);
         t.port.postMessage({ id: "masterAmp", value: v });
     }
 }
@@ -275,7 +275,7 @@ Processor.prototype.process = function process(inputs, outputs, parameters) {
         s /= (dry * 2 + (1 - dry) * waveShaperFrac(driveIn * 2, dry));
         s *= constParams.masterAmp;
         outR[i] = outL[i] = s;
-        if (abs(s) > 1) this.clipHandler(this, abs(s));
+        if (abs(s) > 1) this.normalize(this, abs(s));
     }
     return true;
 }
@@ -291,8 +291,8 @@ class MonoSynthesizer {
         this.fmPhase = 0;
     }
     noteOn(noteNumber, vel = 1) {
-        this.noteNumber = noteNumber;
         this.hz = scale[noteNumber];
+        this.noteNumber = noteNumber;
         this.vel = vel;
         this.ADSR.noteOn(vel);
         this.pmLv = constParams.phaseModLv;
@@ -341,8 +341,9 @@ let polySynth = new PolySynthesizer(MonoSynthesizer, 4);
         }
         handle(event) {
             let value = event.data.value;
-            const n = "zxcvbnmasdfghjklqwertyuiop".indexOf(event.data.value);
+            const n = "zxcvbnm,.asdfghjklqwertyuiop1234567890".indexOf(event.data.value);
             if (n == -1) return;
+            if(!scale[n])return;
             if (event.data.id == "keydown") polySynth.noteOn(n);
             else polySynth.noteOff(n);
         }

@@ -7,11 +7,7 @@ let info, context, processor, pcKeyHandler;
 window.addEventListener("load", async function setup() {
     info = gE("info");
     paramContainers = gE("param-container");
-    try {
-        AudioContext
-        AudioWorklet;
-    } catch (error) { info.textContent = error; return; }
-    await init(1);
+    try { await init(1); } catch (error) { info.textContent = error; return; }
     setupEvents();
 });
 
@@ -52,9 +48,9 @@ async function init(first) {
     processor = await new AudioWorkletNode(context, 'processor', { outputChannelCount: [2] });
     processor.onprocessorerror = e => { console.log(e); info.textContent = "error"; }
     processor.port.onmessage = e => {
-        if(typeof e.data == "string")info.textContent = e.data;
+        if (typeof e.data == "string") info.textContent = e.data;
         else gE(e.data.id).value = e.data.value;
-        
+
     }
 
     pcKeyHandler = await new AudioWorkletNode(context, "pcKeyHandler");
@@ -75,15 +71,86 @@ async function init(first) {
 function connect() {
     window.removeEventListener("keydown", connect);
     window.removeEventListener("mousemove", connect);
-    connecting = !connecting;
 
+    connecting = !connecting;
     context[(connecting ? "resume" : "suspend")]();
     processor[(connecting ? "connect" : "disconnect")](context.destination);
+    analyser[(connecting ? "setup" : "stop")]();
     info.textContent = (connecting ? "connected. press alphabet keys" : "disconnected");
 }
 
 function postMessage(id, value) {
     processor.port.postMessage({ id, value });
+}
+
+const analyser = {
+    isRunning: false,
+    posList: [],
+    guideList: [],
+    guideListBold: [],
+    buffer: null,
+    setup() {
+        this.element = gE("analyser");
+        this.width = this.element.width;
+        this.height = this.element.height;
+        this.canvasCtx = this.element.getContext("2d");
+
+        this.node = context.createAnalyser();
+        this.bufferSize = this.node.frequencyBinCount;
+
+        this.buffer = new Uint8Array(this.bufferSize);
+        this.setupGuide(this.bufferSize, this.width);
+        processor.connect(this.node);
+        this.loop();
+    },
+    setupGuide(bufferSize, w) {
+        let nyquistF = context.sampleRate / 2
+        let leftEnd = log2(1 / bufferSize * nyquistF);
+        let rightEnd = log2(nyquistF) - leftEnd;
+        for (let i = 0; i < bufferSize; i++) {
+            let hz = i / bufferSize * nyquistF;
+            this.posList[i] = (log2(hz) - leftEnd) / rightEnd * w;
+        }
+        for (let hz = 25; hz < nyquistF; hz *= 2) {
+            let x = (log2(hz) - leftEnd) / rightEnd * w;
+            this.guideList.push(round(x));
+        }
+        [100, 1000, 10000].forEach(n => {
+            let x = (log2(n) - leftEnd) / rightEnd * w;
+            this.guideListBold.push(round(x));
+        });
+    },
+    stop() {
+        cancelAnimationFrame(this.animId);
+    },
+    loop() {
+        this.draw(this.canvasCtx, this.bufferSize, this.width, this.height);
+        this.animId = requestAnimationFrame(this.loop.bind(this));
+    },
+    draw(cc, bufferSize, w, h) {
+        cc.fillStyle = "orange";
+        cc.fillRect(0, 0, w, h);
+        cc.fillStyle = "#888";
+        for (let i = 0, l = this.guideList.length; i < l; i++) {
+            cc.fillRect(this.guideList[i], 0, 1, h);
+        }
+        cc.fillStyle = "#444";
+        for (let i = 0, l = this.guideListBold.length; i < l; i++) {
+            cc.fillRect(this.guideListBold[i], 0, 1, h);
+        }
+
+        this.node.getByteFrequencyData(this.buffer);
+        cc.strokeStyle = "white";
+        cc.lineWidth = 2;
+        cc.beginPath();
+        cc.moveTo(-1, h);
+        for (let i = 0, c = h / 256; i < bufferSize; i++) {
+            let y = h - this.buffer[i] * c;
+            cc.lineTo(this.posList[i], y);
+        }
+        cc.moveTo(w, h);
+        cc.stroke();
+    }
 }
 
 // 以下インタラクティブ用
